@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paul</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-image: url('static/ai-background.png');; /* Replace with the actual path to the downloaded AI background image */
+      background-size: cover;
+      background-attachment: fixed;
+      color: #ffffff;
+      text-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
+    }
+    h1 {
+      text-align: center;
+      margin-top: 20px;
+    }
+    button {
+      display: block;
+      margin: 10px auto;
+      padding: 10px 20px;
+      font-size: 1em;
+      color: #ffffff;
+      background-color: #3498db;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+      transition: background-color 0.3s ease;
+    }
+    button:hover {
+      background-color: #2980b9;
+    }
+    .spinner {
+      border: 16px solid rgba(255, 255, 255, 0.2);
+      border-top: 16px solid #3498db;
+      border-radius: 50%;
+      width: 120px;
+      height: 120px;
+      animation: spin 2s linear infinite;
+      margin: 20px auto;
+    }
+    .processing-spinner {
+      border-top: 16px solid #e74c3c;
+    }
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+    .hidden {
+      display: none;
+    }
+    .message {
+      text-align: center;
+      font-size: 1.2em;
+      margin: 20px auto;
+    }
+    #conversation {
+      margin: 20px;
+      padding: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 5px;
+      background-color: rgba(0, 0, 0, 0.6);
+    }
+    .user-message {
+      text-align: left;
+      color: #3498db;
+    }
+    .assistant-message {
+      text-align: right;
+      color: #2ecc71;
+    }
+    audio {
+      display: block;
+      margin: 20px auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Paul</h1>
+  <button onclick="startRecording()">Start Recording</button>
+  <button onclick="stopRecording()" class="hidden" id="stopRecordingButton">Stop Recording</button>
+
+  <div id="recordingSpinner" class="spinner hidden"></div>
+  <p id="recordingComplete" class="message hidden">Recording complete.</p>
+  <div id="processingSpinner" class="spinner hidden processing-spinner"></div>
+  <p id="processingMessage" class="message hidden">Processing...</p>
+
+  <div id="conversation">
+    <h2>Conversation History</h2>
+    <div id="conversationHistory"></div>
+  </div>
+
+  <audio id="audioPlayer" controls class="hidden"></audio>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let silenceTimer;
+    const silenceThreshold = 0.01; // Adjust as needed
+    const silenceDuration = 1500; // 3 seconds
+
+    function startRecording() {
+      console.log("Starting recording...");
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          console.log("Media stream received");
+          const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const source = audioContext.createMediaStreamSource(stream);
+          const analyser = audioContext.createAnalyser();
+          source.connect(analyser);
+          analyser.fftSize = 256;
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+          mediaRecorder = new MediaRecorder(stream);
+          mediaRecorder.start();
+          mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+          };
+          mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+            const audioFile = new File([audioBlob], "recording.wav", {
+              type: "audio/wav",
+            });
+            uploadAudio(audioFile);
+            audioChunks = [];
+          };
+          document.getElementById("stopRecordingButton").classList.remove("hidden");
+          document.getElementById("recordingSpinner").classList.remove("hidden");
+
+          function checkSilence() {
+            analyser.getByteFrequencyData(dataArray);
+            let average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+            let normalizedAverage = average / 256; // Normalize between 0 and 1
+
+            if (normalizedAverage < silenceThreshold) {
+              if (!silenceTimer) {
+                silenceTimer = setTimeout(() => {
+                  stopRecording();
+                }, silenceDuration);
+              }
+            } else {
+              clearTimeout(silenceTimer);
+              silenceTimer = null;
+            }
+
+            requestAnimationFrame(checkSilence);
+          }
+
+          checkSilence();
+        })
+        .catch((error) => {
+          console.error("Error accessing media devices.", error);
+          alert("Error accessing media devices: " + error.message);
+        });
+    }
+
+    function stopRecording() {
+      console.log("Stopping recording...");
+      if (mediaRecorder) {
+        mediaRecorder.stop();
+        document.getElementById("stopRecordingButton").classList.add("hidden");
+        document.getElementById("recordingSpinner").classList.add("hidden");
+        document.getElementById("recordingComplete").classList.remove("hidden");
+      } else {
+        console.error("MediaRecorder not initialized");
+      }
+    }
+
+    function uploadAudio(file) {
+      console.log("Uploading audio...");
+      const formData = new FormData();
+      formData.append("file", file);
+
+      fetch("/upload_audio", {
+        method: "POST",
+        body: formData,
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.error) {
+            console.error("Error:", data.error);
+          } else {
+            startProcessing(data.audio_filename);
+          }
+        })
+        .catch((error) => {
+          console.error("Error:", error);
+        });
+    }
+
+    function startProcessing(audioFilename) {
+      console.log("Processing audio...");
+      document.getElementById("processingSpinner").classList.remove("hidden");
+      document.getElementById("processingMessage").classList.remove("hidden");
+
+      fetch("/process_audio", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ audio_filename: audioFilename }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          const audioPlayer = document.getElementById("audioPlayer");
+          audioPlayer.pause();
+          audioPlayer.src = data.audio_url;
+          audioPlayer.classList.remove("hidden");
+          audioPlayer.load();
+          audioPlayer.play();
+
+          updateConversationHistory(data.conversation_history);
+
+          document.getElementById("processingSpinner").classList.add("hidden");
+          document.getElementById("processingMessage").classList.add("hidden");
+        })
+        .catch((error) => {
+          console.error("Error:", error);
+          document.getElementById("processingSpinner").classList.add("hidden");
+          document.getElementById("processingMessage").classList.add("hidden");
+        });
+    }
+
+    function updateConversationHistory(conversationHistory) {
+      const conversationElement = document.getElementById("conversationHistory");
+      conversationElement.innerHTML = "";
+      conversationHistory.forEach(message => {
+        const messageElement = document.createElement("div");
+        messageElement.className = message.role === "user" ? "user-message" : "assistant-message";
+        messageElement.innerText = message.content;
+        conversationElement.appendChild(messageElement);
+      });
+    }
+  </script>
+</body>
+</html>
