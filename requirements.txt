@@ -19,4 +19,6 @@ SpeechRecognition==3.10.4
 tqdm==4.66.4
 typing_extensions==4.11.0
 urllib3==2.2.1
-
+flask==2.1.1
+werkzeug==2.0
+python-dotenv==1.0.1
